@@ -1,0 +1,15 @@
+# Dev overlay: mounts source for hot-reload equivalents are NOT wired here
+# (dev workflow is `mvn spring-boot:run` + `npm run dev` locally against
+# these containers) — this override just relaxes prod-only settings.
+services:
+  backend:
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      CORS_ALLOWED_ORIGINS: http://localhost:5173
+    ports:
+      - "8080:8080"
+
+  frontend:
+    profiles: ["full-docker"]
+    # In normal dev, run `npm run dev` locally instead of this container
+    # (faster reload); this profile exists for a full-container smoke test.

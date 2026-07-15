@@ -1,0 +1,59 @@
+spring:
+  application:
+    name: querymind
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: false
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+server:
+  port: 8080
+
+jwt:
+  access-secret: ${JWT_ACCESS_SECRET:}
+  refresh-secret: ${JWT_REFRESH_SECRET:}
+  access-ttl-minutes: 15
+  refresh-ttl-days: 7
+
+ai:
+  provider: gemini
+  gemini:
+    api-key: ${GEMINI_API_KEY:}
+    model: gemini-1.5-flash
+    base-url: https://generativelanguage.googleapis.com/v1beta
+  ollama:
+    base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+    model: ${OLLAMA_MODEL:llama3.1}
+
+connection:
+  # Base64-encoded 32-byte key for AES-256-GCM credential encryption at rest.
+  # Never hardcode; source from env/secret manager (rules.md §10).
+  encryption-key: ${CONNECTION_ENCRYPTION_KEY:}
+
+query:
+  row-cap: 500
+  statement-timeout-seconds: 10
+  explain-row-estimate-ceiling: 5000000
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+logging:
+  level:
+    root: INFO
+    com.querymind: INFO

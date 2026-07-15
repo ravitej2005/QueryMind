@@ -1,0 +1,68 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Java
+backend/target/
+*.class
+*.jar
+*.war
+*.ear
+
+# Maven
+.mvn/
+!.mvn/wrapper/maven-wrapper.jar
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Coverage
+coverage/
+
+# Temporary
+tmp/
+temp/
+
+# Spring Boot
+backend/.springBeans
+
+# VS Code Java
+.classpath
+.project
+.settings/
+
+# npm
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Docker
+*.pid
+
+# IntelliJ
+out/
+
+# Maven Wrapper (only if you don't use it)
+.mvn/wrapper/maven-wrapper.jar
+
+# Mac/Linux temp
+*~
+
+# VS Code testing
+.history/

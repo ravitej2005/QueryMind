@@ -1,0 +1,27 @@
+:root, .dark {
+  --bg-base: #0B0D12;
+  --bg-surface: #12151C;
+  --bg-surface-raised: #1A1E28;
+  --border: #242833;
+  --text-primary: #F5F6F8;
+  --text-secondary: #9AA1AF;
+  --accent: #5B8DEF;
+  --accent-soft: #1E2A44;
+  --success: #3DD68C;
+  --warning: #F5B942;
+  --danger: #F0587A;
+}
+.light {
+  --bg-base: #FFFFFF;
+  --bg-surface: #F7F8FA;
+  --bg-surface-raised: #FFFFFF;
+  --border: #E5E7EB;
+  --text-primary: #0B0D12;
+  --text-secondary: #5B6472;
+  --accent: #3D6FD6;
+  --accent-soft: #E8EEFC;
+  --success: #1FA968;
+  --warning: #B9860A;
+  --danger: #D6335A;
+}
+body { background: var(--bg-base); color: var(--text-primary); }
