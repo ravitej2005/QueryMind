@@ -26,6 +26,20 @@ public class SqlValidator {
             throw new SqlRejectedException("Empty statement");
         }
 
+        // Reject SQL comments outright, BEFORE parsing. A trailing "-- ..."
+        // or "/* ... */" is a syntactically valid part of a single SELECT as
+        // far as JSQLParser is concerned (it's just discarded), which means
+        // injected text hidden in a comment (e.g. "... WHERE id=1 -- ; DROP
+        // TABLE users") never survives to any post-parse check — the parser
+        // and the re-rendered statement have both already dropped it. No
+        // legitimate analytical query needs a comment, so the safest rule is
+        // to block comment syntax entirely rather than try to inspect what's
+        // inside one.
+        if (containsSqlComment(rawSql)) {
+            throw new SqlRejectedException(
+                    "Statement blocked: SQL comments are not allowed (comment-injection risk)");
+        }
+
         String upper = rawSql.toUpperCase();
         for (String forbidden : FORBIDDEN_KEYWORDS) {
             if (upper.contains(forbidden)) {
@@ -58,5 +72,34 @@ public class SqlValidator {
         }
 
         return new ValidationResult(select, rendered);
+    }
+
+    /**
+     * Detects `--` line comments and `/* ... *\/` block comments, ignoring
+     * occurrences inside single- or double-quoted string literals (so a
+     * legitimate value like "email LIKE '%--fun%'" isn't falsely rejected).
+     */
+    private boolean containsSqlComment(String sql) {
+        boolean inSingleQuote = false;
+        boolean inDoubleQuote = false;
+        for (int i = 0; i < sql.length(); i++) {
+            char c = sql.charAt(i);
+            if (c == '\'' && !inDoubleQuote) {
+                inSingleQuote = !inSingleQuote;
+            } else if (c == '"' && !inSingleQuote) {
+                inDoubleQuote = !inDoubleQuote;
+            } else if (!inSingleQuote && !inDoubleQuote) {
+                if (c == '-' && i + 1 < sql.length() && sql.charAt(i + 1) == '-') {
+                    return true;
+                }
+                if (c == '/' && i + 1 < sql.length() && sql.charAt(i + 1) == '*') {
+                    return true;
+                }
+                if (c == '#') {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 }

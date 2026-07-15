@@ -33,7 +33,9 @@ class SqlValidatorTest {
         "",
         "   ",
         "SELECT * FROM users; SELECT * FROM users",
-        "UPDATE users SET email='x' WHERE id=1; SELECT 1"
+        "UPDATE users SET email='x' WHERE id=1; SELECT 1",
+        "SELECT * FROM users WHERE id = 1 /* ; DROP TABLE users */",
+        "SELECT * FROM users # DROP TABLE users"
     })
     void rejectsUnsafeStatements(String sql) {
         assertThrows(SqlRejectedException.class, () -> validator.validate(sql));
@@ -45,7 +47,8 @@ class SqlValidatorTest {
         "SELECT id, email FROM users WHERE id = 1",
         "SELECT u.id, COUNT(o.id) FROM users u JOIN orders o ON o.user_id = u.id GROUP BY u.id",
         "SELECT * FROM users ORDER BY created_at DESC LIMIT 10",
-        "SELECT COUNT(*) FROM users WHERE email LIKE '%@example.com'"
+        "SELECT COUNT(*) FROM users WHERE email LIKE '%@example.com'",
+        "SELECT * FROM users WHERE email = 'a--b@example.com'" // quoted "--" is a literal value, not a comment
     })
     void allowsSafeSelectStatements(String sql) {
         assertDoesNotThrow(() -> validator.validate(sql));

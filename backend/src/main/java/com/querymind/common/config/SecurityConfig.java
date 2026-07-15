@@ -36,7 +36,13 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
                                 "/api/auth/register", "/api/auth/login", "/api/auth/refresh",
-                                "/actuator/health", "/swagger-ui/**", "/api-docs/**")
+                                "/actuator/health", "/actuator/info",
+                                // Metrics/Prometheus are permitAll here for portfolio-demo
+                                // simplicity (single VM, no separate scrape network). In a
+                                // real multi-tenant deployment these should be on a
+                                // network-restricted port/IP allowlist, not public.
+                                "/actuator/metrics/**", "/actuator/prometheus",
+                                "/swagger-ui/**", "/api-docs/**")
                         .permitAll()
                         .anyRequest().authenticated())
                 .addFilterBefore(new JwtAuthFilter(jwtService), UsernamePasswordAuthenticationFilter.class);

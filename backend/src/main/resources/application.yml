@@ -47,6 +47,18 @@ query:
   statement-timeout-seconds: 10
   explain-row-estimate-ceiling: 5000000
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, metrics, prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+  metrics:
+    tags:
+      application: querymind
+
 springdoc:
   api-docs:
     path: /api-docs
