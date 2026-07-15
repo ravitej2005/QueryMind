@@ -17,25 +17,34 @@ docker compose up --build
 
 Frontend: http://localhost — Backend: http://localhost:8080
 
-### Dev read-only database user (automatic)
+### Demo business database (automatic)
 
-On first `docker compose up`, MySQL automatically runs
-`infra/dev/init-dev-db-user.sh` which creates a development read-only user:
+QueryMind's own app database (`querymind`) stores only users, workspaces,
+encrypted connection metadata, and chat history — never your business data.
+To have something realistic to actually *ask questions about*, on first
+`docker compose up` MySQL automatically loads a separate e-commerce demo
+database (`querymind_demo`, ~127k rows across products/orders/customers/
+suppliers/etc. — see `seed-data/`) and creates a read-only user scoped to
+**that database only**:
 
-| Field    | Value            |
-|----------|------------------|
-| Host     | `mysql` (Docker service name) or `localhost` if connecting from host |
-| Port     | `3306`           |
-| Database | `querymind`      |
-| User     | `qm_reader`      |
-| Password | `qm_reader_pass` |
+| Field    | Value               |
+|----------|---------------------|
+| Host     | `mysql` (Docker service name) or `localhost` from the host |
+| Port     | `3306`              |
+| Database | `querymind_demo`    |
+| User     | `qm_reader`         |
+| Password | `qm_reader_pass`    |
 
-This user has `SELECT` and `SHOW VIEW` privileges only, which is exactly what
-QueryMind's connection security check requires. Use these credentials when
-creating a connection inside the QueryMind UI to test the AI chat.
+Add this as a **Data Source** in the QueryMind UI to try the Ask/SQL Editor
+features against realistic data. `qm_reader` has `SELECT`/`SHOW VIEW` only,
+and cannot see QueryMind's own `querymind` database at all — by design, so
+the demo never accidentally queries QueryMind's own implementation tables.
 
-> **Note:** The init script only runs when the MySQL data volume does not yet
-> exist. If you need to recreate it, run `docker compose down -v` first.
+> **Note:** The init scripts (`infra/dev/`, `seed-data/schema.sql`,
+> `seed-data/seed_data.sql`) only run when the MySQL data volume does not yet
+> exist. To re-seed from scratch, run `docker compose down -v` first. First
+> boot takes a bit longer than usual while ~127k demo rows load — the mysql
+> healthcheck's `start_period` accounts for this.
 
 ### AI (Gemini)
 

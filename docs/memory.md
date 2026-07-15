@@ -155,3 +155,50 @@ Frontend features live under `src/features/<feature>/` and own their own compone
 - Testcontainers integration tests
 - Results-grid virtualization in SQL Editor
 
+## 16. Stabilization pass — product story + Ask workflow bugs (this session)
+
+**Context:** backend/frontend builds were verified working by the user locally (`mvn clean verify`, `npm run build`). This session focused on the stabilization ask: fix the product story (QueryMind must feel like it connects to external databases, never like it queries itself) and the concretely-reported Known Issues, not new features.
+
+### Product story fix: demo database was pointed at the wrong place
+- **Root cause:** `infra/dev/init-dev-db-user.sh` created `qm_reader` scoped to `querymind` — QueryMind's **own app database** (users/workspaces/connections/chat_messages/query_history). This directly caused the "AI queries QueryMind's own system tables" problem, since that was the only realistic demo target available.
+- **Fix:** Rewrote the script to grant `qm_reader` access to a **separate** `querymind_demo` database only (zero access to `querymind`). `docker-compose.yml` now mounts `seed-data/schema.sql` and `seed-data/seed_data.sql` as ordered init scripts (`01-`/`02-`) that run before the user-creation script (`03-`), auto-provisioning the ~127k-row e-commerce dataset on first boot. Bumped the mysql healthcheck's `start_period`/`retries` since loading that much data on first boot takes noticeably longer than a bare container start.
+- **Terminology:** renamed "Connections" → "Data Sources" in the sidebar nav label and page copy (route path `/connections` unchanged — this is wording only, not an architecture change). Added explicit "your business data stays in your own database, QueryMind only stores encrypted connection metadata" language to the Data Sources page, the New Connection modal, and Overview.
+- **Active data source visibility:** new `components/shared/ActiveDataSourceBar.jsx`, shown on both Ask and SQL Editor pages — displays which data source is active and its table count, and **warns if the connected schema is made up entirely of QueryMind's own internal table names** (a hardcoded set: users/workspaces/workspace_members/connections/query_history/chat_messages/flyway_schema_history), directing the user to connect a real business database instead.
+
+### Ask workflow bugs (Known Issue #2)
+Reviewed the full Ask flow end-to-end and fixed, in `frontend/src/features/chat/AskPage.jsx`:
+1. **Race condition:** no guard existed against firing a second `askMutation.mutate()` while a prior request was still in flight (e.g. clicking two example questions quickly). Concurrent requests could resolve out of order, and the results pane always renders `messages[messages.length-1]`, so a slow first response landing after a fast second one would silently overwrite the correct answer with a stale one. Fixed with a hard `if (askMutation.isPending) return` guard at the top of `handleAsk`, and disabled the example-question buttons while pending.
+2. **No error handling:** a failed request (network error, 429 rate limit, 500) previously did nothing visible — the thread just didn't update, with no indication anything happened. Added an `onError` handler that appends a visible failure entry to the thread, same shape as a rejected query.
+3. **Stale thread across data source switches:** switching the connection dropdown left the previous data source's messages in the thread with no indication of the source change. Now the thread re-hydrates from that specific connection's own history whenever `connectionId` changes.
+4. **No history persistence in the UI:** the backend was persisting every `ChatMessage` all along, but nothing exposed it — refreshing the page silently lost the whole conversation. Added the missing `GET /api/workspaces/{workspaceId}/connections/{connectionId}/chat/history` endpoint (`ChatService.history()`, `ChatController`, new `ChatHistoryResponse` DTO) and wired `AskPage` to hydrate from it on mount/connection-change, and to invalidate/refetch it after every successful ask. Note: `ChatMessage` doesn't persist result rows/columns, only question/SQL/explanation/status — so history entries show SQL+explanation but not a live result table; this is called out in the UI itself ("ask it again to see live results").
+
+Same race-condition class fixed in `SqlEditorPage.jsx`'s Cmd+Enter handler (guarded on `runMutation.isPending`).
+
+### `OverviewPage` simplified
+Removed a second, independent `listWorkspaces()` fetch that duplicated `App.jsx`'s workspace-hydration effect (added by a prior session to fix the `/workspaces/null/...` bug). Both set the same store value so this wasn't actively broken, but two places deriving the same piece of state is exactly the shape of bug this stabilization pass is meant to eliminate. `OverviewPage` now only reads `currentWorkspaceId` from the store; App.jsx remains the single place that fetches and sets it.
+
+### `/workspaces/null/...` bug — an actual second instance found and fixed
+The prior session's `App.jsx` fix covers page-level API calls (all guarded with `enabled: !!workspaceId`). It did **not** cover `NewConnectionModal`, whose Test/Save mutations fire on button click with no such guard — opening the modal and clicking "Test connection" before workspace hydration completes reproduces the exact bug (`testConnection(null, ...)` → `/api/workspaces/null/connections/test`). Fixed by disabling both buttons until `workspaceId` is non-null, with a visible "Setting up your workspace…" message in the interim.
+
+### Verification performed this session
+- **Frontend:** re-ran `npm install` (the zipped `node_modules` had broken symlinks and needed a clean reinstall — not a code issue, an artifact-of-zipping issue), then `npm run build`, `npx eslint .`, `npx vitest run` — **all green** against every change described above.
+- **Backend:** could not run `mvn clean verify` in this sandbox (same `repo.maven.apache.org` egress-allowlist block as prior sessions, confirmed again this session). Instead, extracted the user's own successfully-built fat jar (`target/querymind-backend-0.1.0.jar`, included in their zip) to get a real 120-jar dependency classpath, but `javac` itself wasn't installable here either (same package-mirror 404s that blocked `mysql-server`/`docker.io` in prior sessions) — so even that partial compile-check couldn't run. Verified the four changed Java files by manual read-through instead: confirmed `ChatMessage` getters (`getId`/`getQuestion`/`getGeneratedSql`/`getExplanation`/`getStatus`/`getRejectionReason`/`getCreatedAt`) match the DTO mapping in `ChatServiceImpl.history()`, and confirmed the `Page<T>.map(...).toList()` pattern used there is identical to the already-working `QueryExecutionServiceImpl.history()`. **This is a lower confidence level than an actual compile — run `mvn clean verify` locally to confirm before trusting it.**
+- **Docker:** not re-verified this session (no Docker binary available, consistent with prior sessions).
+
+### What to run locally
+```bash
+# Backend — confirm the new chat history endpoint actually compiles/tests clean
+cd backend && mvn -B clean verify
+
+# Frontend — already verified in sandbox, should be reliably green for you too
+cd frontend && npm install && npm run build && npm run lint && npm test
+
+# Full stack — confirm the re-scoped demo database + all Ask-workflow fixes
+docker compose down -v   # wipe the volume so the new init scripts actually run
+docker compose up --build
+# then: register → Data Sources → add the qm_reader/querymind_demo credentials
+# from the README → Ask → try switching data sources, submitting quickly twice,
+# and refreshing the page mid-conversation to confirm history now persists.
+```
+
+

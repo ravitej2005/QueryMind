@@ -3,6 +3,7 @@ import Editor from '@monaco-editor/react';
 import { useMutation } from '@tanstack/react-query';
 import { executeQuery } from './queryApi';
 import ConnectionPicker from '../../components/shared/ConnectionPicker';
+import ActiveDataSourceBar from '../../components/shared/ActiveDataSourceBar';
 import ErrorState from '../../components/states/ErrorState';
 import EmptyState from '../../components/states/EmptyState';
 import { useWorkspaceStore } from '../workspace/useWorkspaceStore';
@@ -16,26 +17,38 @@ export default function SqlEditorPage() {
     mutationFn: () => executeQuery(workspaceId, connectionId, sql),
   });
 
+  function runIfReady() {
+    // Guard against Cmd+Enter re-firing a second request while the first is
+    // still in flight (same class of race as the Ask page).
+    if (!connectionId || runMutation.isPending) return;
+    runMutation.mutate();
+  }
+
   function handleEditorMount(editor, monaco) {
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
-      if (connectionId) runMutation.mutate();
-    });
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, runIfReady);
   }
 
   const result = runMutation.data;
 
   return (
     <div className="flex h-full flex-col">
+      <ActiveDataSourceBar connectionId={connectionId} />
       <div className="flex items-center gap-3 border-b border-border bg-bg-surface px-4 py-2">
         <ConnectionPicker value={connectionId} onChange={setConnectionId} />
         <button
-          onClick={() => runMutation.mutate()}
+          onClick={runIfReady}
           disabled={!connectionId || runMutation.isPending}
           className="rounded bg-accent px-3 py-1.5 text-sm text-white hover:opacity-90 disabled:opacity-50"
         >
           {runMutation.isPending ? 'Running…' : 'Run (⌘/Ctrl+Enter)'}
         </button>
       </div>
+
+      {!connectionId && (
+        <div className="border-b border-border bg-bg-surface px-4 py-2 text-xs text-text-secondary">
+          Select a data source above to run queries against it.
+        </div>
+      )}
 
       <div className="h-1/2 border-b border-border">
         <Editor
@@ -53,7 +66,7 @@ export default function SqlEditorPage() {
         {!result && !runMutation.isError && (
           <EmptyState title="Run a query to see results" description="Write SELECT SQL above and hit Run." />
         )}
-        {runMutation.isError && <ErrorState message={runMutation.error.message} />}
+        {runMutation.isError && <ErrorState message={runMutation.error.message} onRetry={runIfReady} />}
         {result && !result.success && (
           <div className="rounded border border-danger/40 bg-danger/10 p-3 text-sm text-danger">
             <p className="font-medium">Query blocked</p>

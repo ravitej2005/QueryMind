@@ -6,6 +6,7 @@ import com.querymind.ai.domain.ChatMessage;
 import com.querymind.ai.domain.ChatStatus;
 import com.querymind.ai.dto.AskRequest;
 import com.querymind.ai.dto.AskResponse;
+import com.querymind.ai.dto.ChatHistoryResponse;
 import com.querymind.ai.provider.ResilientAiProvider;
 import com.querymind.ai.repository.ChatMessageRepository;
 import com.querymind.connection.schema.SchemaModels.SchemaSnapshot;
@@ -13,7 +14,9 @@ import com.querymind.connection.service.ConnectionService;
 import com.querymind.query.domain.QuerySource;
 import com.querymind.query.dto.ExecuteQueryResponse;
 import com.querymind.query.service.QueryExecutionService;
+import java.util.List;
 import java.util.UUID;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -108,6 +111,17 @@ public class ChatServiceImpl implements ChatService {
             // caching is best-effort
         }
         return response;
+    }
+
+    @Override
+    @Transactional
+    public List<ChatHistoryResponse> history(UUID workspaceId, UUID connectionId, int page, int size) {
+        return chatMessageRepository
+                .findAllByWorkspaceAndConnection(workspaceId, connectionId, PageRequest.of(page, size))
+                .map(m -> new ChatHistoryResponse(
+                        m.getId(), m.getQuestion(), m.getGeneratedSql(), m.getExplanation(),
+                        m.getStatus().name(), m.getRejectionReason(), m.getCreatedAt()))
+                .toList();
     }
 
     private void persistChat(UUID workspaceId, UUID connectionId, UUID userId, String question,

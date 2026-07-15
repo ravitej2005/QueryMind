@@ -5,7 +5,7 @@ import { useUiStore } from '../../features/ui/useUiStore';
 const NAV_ITEMS = [
   { to: '/overview', label: 'Overview', icon: Home },
   { to: '/ask', label: 'Ask (AI Chat)', icon: MessageSquare },
-  { to: '/connections', label: 'Connections', icon: Database },
+  { to: '/connections', label: 'Data Sources', icon: Database },
   { to: '/editor', label: 'SQL Editor', icon: Code2 },
   { to: '/dashboards', label: 'Dashboards', icon: LayoutDashboard },
   { to: '/reports', label: 'Reports', icon: FolderOpen },

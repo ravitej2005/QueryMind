@@ -11,14 +11,24 @@ services:
       - "3306:3306"
     volumes:
       - mysql-data:/var/lib/mysql
-      # Dev-only: creates qm_reader (SELECT/SHOW VIEW) user on first start.
-      # Remove this mount in a real production deployment.
-      - ./infra/dev/init-dev-db-user.sh:/docker-entrypoint-initdb.d/01-dev-user.sh:ro
+      # Dev-only: auto-provisions a SEPARATE "querymind_demo" database (the
+      # e-commerce seed dataset) plus a read-only user scoped to it, so the
+      # AI chat has a real business database to query instead of QueryMind's
+      # own app tables. Runs once, in this alphabetical order, on first
+      # start only (docker-entrypoint-initdb.d only runs against an empty
+      # data volume). Remove these three mounts in a real production
+      # deployment — they must never touch a real environment.
+      - ./seed-data/schema.sql:/docker-entrypoint-initdb.d/01-demo-schema.sql:ro
+      - ./seed-data/seed_data.sql:/docker-entrypoint-initdb.d/02-demo-seed.sql:ro
+      - ./infra/dev/init-dev-db-user.sh:/docker-entrypoint-initdb.d/03-dev-user.sh:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-rootpass}"]
       interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 20
+      # First boot only: loading ~127k demo rows via the init scripts above
+      # can take a couple of minutes before MySQL accepts connections at all.
+      start_period: 90s
 
   redis:
     image: redis:7-alpine
