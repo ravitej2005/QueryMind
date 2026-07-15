@@ -110,3 +110,43 @@ Frontend features live under `src/features/<feature>/` and own their own compone
 - Putting business logic in a React component instead of a hook/query function.
 - Storing the JWT access token in `localStorage` for "simplicity."
 - Introducing Kafka, Kubernetes, GraphQL, ElasticSearch, or a second database engine because it was mentioned as a "future" idea in `prd.md` — these are explicitly out of scope for implementation.
+
+## 15. Current Implementation Status (updated by AI assistant — keep this current)
+
+**A future session should be able to resume from this section alone.**
+
+### Backend (Spring Boot) — code-complete through Phase 4, unverified compile in sandbox
+- `auth` module: register/login/refresh(rotation+reuse-detect)/logout, BCrypt, JWT access(memory-only client-side)+refresh(HttpOnly cookie), Redis-backed refresh store.
+- `workspace` module: `WorkspaceService` interface (create-on-signup, list, per-request role resolve). Cross-module boundary respected.
+- `connection` module: CRUD, AES-256-GCM credential encryption, `DatabaseProvider` abstraction (`MySqlProvider` only impl so far), read-only-credential check via `SHOW GRANTS` at connect time, lazy per-connection HikariDataSource registry w/ idle eviction, schema introspection (JDBC metadata) cached in Redis.
+- `query` module: **SafeExecutionEngine** — `SqlValidator` (JSQLParser AST, SELECT-only, blocks `INTO OUTFILE`/`LOAD_FILE`/`LOAD DATA`, blocks stacked statements, **blocks all SQL comments `--`/`/* */`/`#` outright as defense-in-depth against comment-injection** — see bug history below), `LimitEnforcer` (auto-inject/cap LIMIT), EXPLAIN-based cost check, statement timeout, execution against read-only datasource, `QueryHistory` logging every attempt incl. rejection reason.
+- `ai` module: `AiProvider` interface, `GeminiProvider` (default, real HTTP call), `OllamaProvider` (second real local adapter), `ResilientAiProvider` (Resilience4j timeout/retry/circuit-breaker), `ChatService` (NL question → schema-aware prompt → SQL → **always routed through QueryExecutionService/SafeExecutionEngine, never bypassed** → explanation), Redis response cache (cost control) + per-user rate limit.
+- Observability: Spring Boot Actuator + Micrometer + Prometheus registry added (`/actuator/health`, `/actuator/metrics`, `/actuator/prometheus` exposed; health/info also permitAll for container healthchecks). Optional Prometheus+Grafana docker-compose overlay at `infra/observability/`.
+- DB migrations: V1 (auth/workspace), V2 (connections), V3 (query_history), V4 (chat_messages). **No V5+ yet** for Phase 5+ features (dashboards, reports, saved prompts) — those modules are not implemented yet.
+- Tests: `SqlValidatorTest` (should-reject/should-allow matrix, see bug history), `LimitEnforcerTest`, `CredentialCipherTest`, `ChatServiceImplTest` (mocked AiProvider, no real API calls in CI). **Missing:** Testcontainers integration tests (register→login→refresh flow, schema introspection against real MySQL), ArchUnit module-boundary test (prd.md success metric).
+
+### Known bug history (fixed)
+- **SqlValidator comment-injection gap (fixed):** `SELECT * FROM users WHERE id = 1 -- ; DROP TABLE users` was a syntactically valid single SELECT (the `--` is a real SQL comment), so it parsed clean and passed validation — a genuine security gap, not a flaky test. Fix: `SqlValidator` now rejects any raw input containing `--`, `/* */`, or `#` outside of quoted string literals, before parsing. Test matrix expanded accordingly (`SqlValidatorTest`). No legitimate analytical query needs a SQL comment, so this is a safe blanket rule.
+
+### Frontend (React JS + Vite + Tailwind) — verified working
+- Auth (login/register, silent-refresh-on-load, protected routes), Connections (list/create with test-before-save/delete), SQL Editor (Monaco, Cmd+Enter, results table — **not yet virtualized**, a known simplification vs design.md §7), Ask/Chat (three-pane layout, example questions, explain-only toggle).
+- Dashboards/Reports/Saved Prompts/Settings are honest "not built yet" empty states (not fake mockups).
+- **Verified in sandbox:** `npm install`, `npm run build`, `npm run lint`, `npm test` all green (two real bugs found and fixed during verification: CSS `@import` ordering, missing ESLint ignore/Node-env config).
+
+### Infrastructure — written, partially verified
+- Multi-stage Dockerfiles for backend (Maven→JRE, non-root, healthcheck) and frontend (npm build→nginx, SPA fallback + `/api` reverse proxy).
+- `docker-compose.yml` (mysql+redis+backend+frontend, healthchecks, required-secret env guards) + `docker-compose.dev.yml` override.
+- GitHub Actions CI (`ci.yml`): backend Spotless+verify, frontend lint+test+build, docker image builds. **Not yet run against real GitHub Actions** — untested end-to-end, and Spotless will likely need one `mvn spotless:apply` pass before it's green.
+- **Cannot verify Docker builds or `mvn` in this sandbox** — no Maven Central network access, no local Docker daemon with registry access confirmed. User must verify locally.
+
+### Seed data
+- `seed-data/schema.sql` + `seed-data/generate_seed.py` (Faker-based generator) produce a **separate demo database** (`querymind_demo`) — 14 e-commerce tables (products, orders, customers, suppliers, warehouses, inventory, payments, shipments, refunds, reviews, coupons, support_tickets), ~127,000 rows, referentially consistent by construction. This is the target DB a QueryMind connection points to — entirely separate from QueryMind's own app schema (V1-V4 migrations above). Structurally validated (balanced parens/quotes, FK range logic reviewed) but **never loaded into a real running MySQL** — no DB engine available in this sandbox (package mirrors returned 404 for mysql-server/mariadb-server). User must run and confirm.
+
+### Remaining work (not started)
+- Phase 5: dashboards module (chart auto-selection, widget CRUD, react-grid-layout persistence)
+- Phase 6: collaboration (WebSocket + Redis pub-sub, presence, no live cursors)
+- Phase 7: reports (Quartz scheduled PDF+email), saved prompt library, accessibility pass, performance pass
+- ArchUnit module-boundary enforcement test
+- Testcontainers integration tests
+- Results-grid virtualization in SQL Editor
+
