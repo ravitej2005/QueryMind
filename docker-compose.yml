@@ -11,6 +11,9 @@ services:
       - "3306:3306"
     volumes:
       - mysql-data:/var/lib/mysql
+      # Dev-only: creates qm_reader (SELECT/SHOW VIEW) user on first start.
+      # Remove this mount in a real production deployment.
+      - ./infra/dev/init-dev-db-user.sh:/docker-entrypoint-initdb.d/01-dev-user.sh:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-rootpass}"]
       interval: 10s

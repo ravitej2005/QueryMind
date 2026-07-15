@@ -115,17 +115,21 @@ Frontend features live under `src/features/<feature>/` and own their own compone
 
 **A future session should be able to resume from this section alone.**
 
-### Backend (Spring Boot) — code-complete through Phase 4, unverified compile in sandbox
+### Backend (Spring Boot) — code-complete through Phase 4, verified running in Docker
 - `auth` module: register/login/refresh(rotation+reuse-detect)/logout, BCrypt, JWT access(memory-only client-side)+refresh(HttpOnly cookie), Redis-backed refresh store.
 - `workspace` module: `WorkspaceService` interface (create-on-signup, list, per-request role resolve). Cross-module boundary respected.
 - `connection` module: CRUD, AES-256-GCM credential encryption, `DatabaseProvider` abstraction (`MySqlProvider` only impl so far), read-only-credential check via `SHOW GRANTS` at connect time, lazy per-connection HikariDataSource registry w/ idle eviction, schema introspection (JDBC metadata) cached in Redis.
 - `query` module: **SafeExecutionEngine** — `SqlValidator` (JSQLParser AST, SELECT-only, blocks `INTO OUTFILE`/`LOAD_FILE`/`LOAD DATA`, blocks stacked statements, **blocks all SQL comments `--`/`/* */`/`#` outright as defense-in-depth against comment-injection** — see bug history below), `LimitEnforcer` (auto-inject/cap LIMIT), EXPLAIN-based cost check, statement timeout, execution against read-only datasource, `QueryHistory` logging every attempt incl. rejection reason.
-- `ai` module: `AiProvider` interface, `GeminiProvider` (default, real HTTP call), `OllamaProvider` (second real local adapter), `ResilientAiProvider` (Resilience4j timeout/retry/circuit-breaker), `ChatService` (NL question → schema-aware prompt → SQL → **always routed through QueryExecutionService/SafeExecutionEngine, never bypassed** → explanation), Redis response cache (cost control) + per-user rate limit.
+- `ai` module: `AiProvider` interface, `GeminiProvider` (default, real HTTP call, model=`gemini-2.5-flash` via `ai.gemini.model` config — update this value if Google deprecates it again), `OllamaProvider` (second real local adapter), `ResilientAiProvider` (Resilience4j timeout/retry/circuit-breaker), `ChatService` (NL question → schema-aware prompt → SQL → **always routed through QueryExecutionService/SafeExecutionEngine, never bypassed** → explanation), Redis response cache (cost control) + per-user rate limit.
 - Observability: Spring Boot Actuator + Micrometer + Prometheus registry added (`/actuator/health`, `/actuator/metrics`, `/actuator/prometheus` exposed; health/info also permitAll for container healthchecks). Optional Prometheus+Grafana docker-compose overlay at `infra/observability/`.
-- DB migrations: V1 (auth/workspace), V2 (connections), V3 (query_history), V4 (chat_messages). **No V5+ yet** for Phase 5+ features (dashboards, reports, saved prompts) — those modules are not implemented yet.
+- DB migrations: V1 (auth/workspace), V2 (connections), V3 (query_history), V4 (chat_messages), **V5 (query_history add updated_at)**, **V6 (workspace_members add updated_at)**. No V7+ yet for Phase 5+ features (dashboards, reports, saved prompts) — those modules are not implemented yet.
 - Tests: `SqlValidatorTest` (should-reject/should-allow matrix, see bug history), `LimitEnforcerTest`, `CredentialCipherTest`, `ChatServiceImplTest` (mocked AiProvider, no real API calls in CI). **Missing:** Testcontainers integration tests (register→login→refresh flow, schema introspection against real MySQL), ArchUnit module-boundary test (prd.md success metric).
 
+### Security configuration note
+- `SecurityConfig` defines a no-op `InMemoryUserDetailsManager` bean with zero users. This suppresses Spring Boot's `UserDetailsServiceAutoConfiguration` which would otherwise generate a default in-memory user and log a generated password at startup. QueryMind's JWT filter (`JwtAuthFilter`) sets the `SecurityContext` directly and never calls `UserDetailsService`. The bean has zero effect on the authentication flow — it only satisfies the auto-configuration check.
+
 ### Known bug history (fixed)
+- **Hibernate schema-validation failure — `updated_at` missing from `query_history` and `workspace_members` (fixed):** `BaseEntity` declares both `createdAt` and `updatedAt`, but `V3__query_history.sql` and `V1__init_auth_workspace.sql` (workspace_members table only) omitted `updated_at`. Fixed by `V5__query_history_add_updated_at.sql` and `V6__workspace_members_add_updated_at.sql` — each does `ALTER TABLE ... ADD COLUMN updated_at DATETIME(6) NOT NULL` and back-fills existing rows. Original migrations were not modified (Flyway checksums). Root table audit: users (✅), workspaces (✅), workspace_members (❌→fixed V6), connections (✅), query_history (❌→fixed V5), chat_messages (✅).
 - **SqlValidator comment-injection gap (fixed):** `SELECT * FROM users WHERE id = 1 -- ; DROP TABLE users` was a syntactically valid single SELECT (the `--` is a real SQL comment), so it parsed clean and passed validation — a genuine security gap, not a flaky test. Fix: `SqlValidator` now rejects any raw input containing `--`, `/* */`, or `#` outside of quoted string literals, before parsing. Test matrix expanded accordingly (`SqlValidatorTest`). No legitimate analytical query needs a SQL comment, so this is a safe blanket rule.
 
 ### Frontend (React JS + Vite + Tailwind) — verified working
@@ -133,11 +137,12 @@ Frontend features live under `src/features/<feature>/` and own their own compone
 - Dashboards/Reports/Saved Prompts/Settings are honest "not built yet" empty states (not fake mockups).
 - **Verified in sandbox:** `npm install`, `npm run build`, `npm run lint`, `npm test` all green (two real bugs found and fixed during verification: CSS `@import` ordering, missing ESLint ignore/Node-env config).
 
-### Infrastructure — written, partially verified
+### Infrastructure — verified running
 - Multi-stage Dockerfiles for backend (Maven→JRE, non-root, healthcheck) and frontend (npm build→nginx, SPA fallback + `/api` reverse proxy).
 - `docker-compose.yml` (mysql+redis+backend+frontend, healthchecks, required-secret env guards) + `docker-compose.dev.yml` override.
-- GitHub Actions CI (`ci.yml`): backend Spotless+verify, frontend lint+test+build, docker image builds. **Not yet run against real GitHub Actions** — untested end-to-end, and Spotless will likely need one `mvn spotless:apply` pass before it's green.
-- **Cannot verify Docker builds or `mvn` in this sandbox** — no Maven Central network access, no local Docker daemon with registry access confirmed. User must verify locally.
+- **Dev-only read-only MySQL user:** `infra/dev/init-dev-db-user.sh` is mounted into MySQL's `/docker-entrypoint-initdb.d/` in `docker-compose.yml`. On first volume creation it creates `qm_reader`@`%` with `SELECT, SHOW VIEW ON querymind.*`. Credentials: user=`qm_reader`, password=`qm_reader_pass`. This is a development convenience — remove the volume mount for production. NOT implemented via Flyway (correct — user/privilege management is infrastructure, not schema evolution).
+- GitHub Actions CI (`ci.yml`): backend Spotless+verify, frontend lint+test+build, docker image builds. **Not yet run against real GitHub Actions** — Spotless will likely need one `mvn spotless:apply` pass before it's green.
+- Docker Compose fully verified locally: MySQL, Redis, Flyway (V1–V6), Hibernate validation, Spring Boot startup, frontend Nginx all confirmed working.
 
 ### Seed data
 - `seed-data/schema.sql` + `seed-data/generate_seed.py` (Faker-based generator) produce a **separate demo database** (`querymind_demo`) — 14 e-commerce tables (products, orders, customers, suppliers, warehouses, inventory, payments, shipments, refunds, reviews, coupons, support_tickets), ~127,000 rows, referentially consistent by construction. This is the target DB a QueryMind connection points to — entirely separate from QueryMind's own app schema (V1-V4 migrations above). Structurally validated (balanced parens/quotes, FK range logic reviewed) but **never loaded into a real running MySQL** — no DB engine available in this sandbox (package mirrors returned 404 for mysql-server/mariadb-server). User must run and confirm.

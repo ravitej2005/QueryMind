@@ -15,6 +15,8 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import java.util.List;
 
 @Configuration
@@ -26,6 +28,18 @@ public class SecurityConfig {
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
+    }
+
+    /**
+     * Provides an explicit (empty) UserDetailsService so Spring Boot's
+     * UserDetailsServiceAutoConfiguration does not activate and log a
+     * generated default password. QueryMind authenticates via JWT — the
+     * JwtAuthFilter sets the SecurityContext directly; UserDetailsService
+     * is never called in the request path.
+     */
+    @Bean
+    public UserDetailsService userDetailsService() {
+        return new InMemoryUserDetailsManager();
     }
 
     @Bean
